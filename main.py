@@ -2,10 +2,11 @@ import os
 import json
 import datetime
 import zoneinfo
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from groq import Groq
+import resend
 
 from calendar_service import (
     find_calendar_event,
@@ -15,9 +16,83 @@ from calendar_service import (
     check_calendar_events
 )
 
+# --- CONFIGURATION & API KEYS ---
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+DOCTOR_NOTIFICATION_EMAIL = os.getenv("DOCTOR_NOTIFICATION_EMAIL", "your_email@gmail.com")
+
 ACTIVE_MODEL = "qwen/qwen3.8-27b"
 client = Groq(api_key=GROQ_API_KEY)
+
+# Αρχικοποίηση Resend API Key
+resend.api_key = RESEND_API_KEY
+
+
+# --- UNIVERSAL EMAIL NOTIFICATION FUNCTION ---
+def send_doctor_notification(doctor_email: str, event_type: str, details: dict):
+    """
+    Στέλνει ειδοποίηση email στον γιατρό για Νέο Ραντεβού, Ακύρωση ή Αλλαγή.
+    event_type: 'CREATE' | 'CANCEL' | 'RESCHEDULE'
+    """
+    try:
+        if not resend.api_key:
+            print("⚠️ RESEND_API_KEY δεν έχει οριστεί στα Environment Variables.")
+            return
+
+        if event_type == "CREATE":
+            subject = f"🔔 Νέο Ραντεβού: {details.get('summary', 'Ασθενής')}"
+            title = "Νέο Προγραμματισμένο Ραντεβού"
+            color = "#0056b3"
+            body = f"""
+                <p><b>👤 Στοιχεία / Αιτία:</b> {details.get('summary', 'Δεν δηλώθηκε')}</p>
+                <p><b>📞 Τηλέφωνο Ασθενούς:</b> {details.get('patient_phone', 'Δεν δηλώθηκε')}</p>
+                <p><b>📅 Έναρξη (ISO):</b> {details.get('start_iso', 'Δεν δηλώθηκε')}</p>
+                <p><b>⏰ Λήξη (ISO):</b> {details.get('end_iso', 'Δεν δηλώθηκε')}</p>
+                <p><b>ℹ️ Αποτέλεσμα Calendar:</b> {details.get('tool_result', '')}</p>
+            """
+        elif event_type == "CANCEL":
+            subject = f"❌ Ακύρωση Ραντεβού: {details.get('booking_code_or_phone')}"
+            title = "Ακύρωση Ραντεβού"
+            color = "#dc3545"
+            body = f"""
+                <p><b>🆔 Κωδικός / Τηλέφωνο:</b> <code>{details.get('booking_code_or_phone')}</code></p>
+                <p><b>ℹ️ Κατάσταση:</b> {details.get('tool_result', '')}</p>
+            """
+        elif event_type == "RESCHEDULE":
+            subject = f"🔄 Αλλαγή Ώρας Ραντεβού: {details.get('booking_code_or_phone')}"
+            title = "Μεταφορά / Αλλαγή Ώρας Ραντεβού"
+            color = "#d97706"
+            body = f"""
+                <p><b>🆔 Κωδικός / Τηλέφωνο:</b> <code>{details.get('booking_code_or_phone')}</code></p>
+                <p><b>📅 Νέα Έναρξη (ISO):</b> {details.get('new_start_iso')}</p>
+                <p><b>⏰ Νέα Λήξη (ISO):</b> {details.get('new_end_iso')}</p>
+                <p><b>ℹ️ Κατάσταση:</b> {details.get('tool_result', '')}</p>
+            """
+        else:
+            return
+
+        params = {
+            "from": "OffVoice AI <onboarding@resend.dev>",
+            "to": [doctor_email],
+            "subject": subject,
+            "html": f"""
+            <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+                <h2 style="color: {color}; margin-top: 0;">{title}</h2>
+                <p>Ο ψηφιακός βοηθός <b>OffVoice AI</b> επεξεργάστηκε μια ενέργεια στο Google Calendar.</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 15px 0;">
+                {body}
+                <hr style="border: none; border-top: 1px solid #eee; margin: 15px 0;">
+                <p style="font-size: 12px; color: #777;">OffVoice AI System • Αυτόματη ειδοποίηση ιατρείου</p>
+            </div>
+            """
+        }
+
+        response = resend.Emails.send(params)
+        print(f"✅ Email ειδοποίησης ({event_type}) στάλθηκε στο {doctor_email}. ID: {response.get('id')}")
+
+    except Exception as e:
+        print(f"❌ Σφάλμα κατά την αποστολή email μέσω Resend: {e}")
+
 
 tools = [
     {
@@ -89,29 +164,34 @@ def get_system_prompt():
         dates_reference += f"- {days_gr[day.weekday()]} {day.strftime('%d/%m/%Y')} -> ISO: {day.strftime('%Y-%m-%d')}\n"
 
     return f"""
-Είσαι η ψηφιακή βοηθός (AI Receptionist) του Ιατρείου.
-Απαντάς ΠΑΝΤΑ με απόλυτη ευγένεια, επαγγελματισμό και σοβαρότητα (πληθυντικός ευγενείας, σύντομες και κοφτές απαντήσεις).
+Είσαι η ψηφιακή βοηθός (AI Receptionist) του Δοκιμαστικού Ιατρείου (Δρ. TEST - Γυναικολόγος / Μαιευτήρας).
 
 {dates_reference}
 
 === ΚΑΝΟΝΕΣ ΕΠΙΚΟΙΝΩΝΙΑΣ (ΑΥΣΤΗΡΟ) ===
-1. ΣΤΥΛ: Επαγγελματικό, λιτό, ευγενικό (1-2 προτάσεις το πολύ).
-2. ΑΠΑΓΟΡΕΥΣΗ ΠΕΡΙΤΤΩΝ ΠΛΗΡΟΦΟΡΙΩΝ:
-   - ΜΗΝ εξηγείς τεχνικούς κανόνες στον ασθενή.
-   - ΜΗΝ αναφέρεις ποιες ώρες είναι κατειλημμένες.
-3. GDPR: Απόλυτη προστασία προσωπικών δεδομένων.
-4. ΛΕΙΤΟΥΡΓΙΑ: Δευτέρα έως Παρασκευή 09:00 - 17:00 (30 λεπτά ανά ραντεβού).
+1. ΣΤΥΛ: Απαντάς ΠΑΝΤΑ σύντομα, επαγγελματικά και ευγενικά (1-2 προτάσεις το πολύ).
+2. ΣΥΛΛΟΓΗ ΣΤΟΙΧΕΙΩΝ (ΑΜΕΣΗ & ΟΙΚΟΝΟΜΙΚΗ):
+   - Όταν ο χρήστης θέλει να κλείσει ραντεβού και δεν έχει δώσει όλα τα στοιχεία, ΖΗΤΑ ΤΑ ΟΛΑ ΜΑΖΙ ΣΕ ΕΝΑ ΜΗΝΥΜΑ:
+     "Παρακαλώ σημειώστε μου: 1) Ονοματεπώνυμο, 2) Τηλέφωνο, 3) Επιθυμητή ημερομηνία/ώρα και 4) Αιτία επίσκεψης."
+   - ΑΠΑΓΟΡΕΥΕΤΑΙ να ζητάς τα στοιχεία ένα-ένα σε ξεχωριστά μηνύματα.
+3. ΑΠΑΓΟΡΕΥΣΗ ΠΕΡΙΤΤΩΝ ΠΛΗΡΟΦΟΡΙΩΝ:
+   - ΜΗΝ εξηγείς ΠΟΤΕ στον χρήστη τεχνικούς κανόνες (π.χ. για 30 λεπτά, για συγκρούσεις ραντεβού, ή για το τι είναι διαθέσιμο).
+   - ΜΗΝ αναφέρεις ΠΟΤΕ ποιες ώρες είναι κατειλημμένες.
+   - Για αλλαγή ραντεβού, μόλις βρεθεί ο κωδικός, ρώτα ΑΠΛΑ: "Ποια νέα ημερομηνία και ώρα επιθυμείτε;"
+4. GDPR: Απαγορεύεται η αποκάλυψη στοιχείων άλλων ασθενών.
+5. OUT-OF-SCOPE: Αρνήσου ευγενικά ερωτήσεις εκτός ιατρείου.
+6. ΛΕΙΤΟΥΡΓΙΑ 🏥: Δευτέρα έως Παρασκευή 09:00 - 17:00 (30 λεπτά ανά ραντεβού).
 
 === ΛΕΙΤΟΥΡΓΙΕΣ ===
-1. ΝΕΟ ΡΑΝΤΕΒΟΥ: Συλλέγεις 1) Ονοματεπώνυμο, 2) Τηλέφωνο, 3) Ημερομηνία & Ώρα, 4) Αιτία και καλείς `create_calendar_event`.
-2. ΑΛΛΑΓΗ / ΑΚΥΡΩΣΗ: Ζητάς τον κωδικό, καλείς `find_calendar_event`.
+1. ΝΕΟ ΡΑΝΤΕΒΟΥ: Μόλις συγκεντρωθούν και τα 4 στοιχεία (Ονοματεπώνυμο, Τηλέφωνο, Ημερομηνία & Ώρα, Αιτία), καλείς `create_calendar_event`.
+2. ΑΛΛΑΓΗ / ΑΚΥΡΩΣΗ: Ζητάς τον κωδικό ή τηλέφωνο, καλείς `find_calendar_event`, και μετά προχωράς σε αλλαγή ή ακύρωση.
 
 === ΔΙΑΘΕΣΙΜΟΤΗΤΑ ===
 {check_calendar_events()}
 """
 
 app = FastAPI()
-chat_history = []
+chat_history = [{"role": "system", "content": get_system_prompt()}]
 
 class ChatRequest(BaseModel):
     message: str
@@ -122,7 +202,7 @@ HTML_CONTENT = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OffVoice AI - Ψηφιακός Βοηθός Ιατρείου</title>
+    <title>Δρ. TEST - AI Assistant</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; padding: 10px; display: flex; justify-content: center; }
         .chat-container { width: 100%; max-width: 450px; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 80vh; }
@@ -140,11 +220,11 @@ HTML_CONTENT = """
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            <span>OffVoice AI - Ψηφιακός Βοηθός Ιατρείου</span>
+            <span>Δρ. TEST - AI Assistant (Test Mode)</span>
             <button class="reset-btn" onclick="resetChat()">Επαναφορά</button>
         </div>
         <div class="chat-messages" id="messages">
-            <div class="message bot-message">ℹ️ <b>Ενημέρωση GDPR</b>: Με τη συνέχιση της συνομιλίας, αποδέχεστε τη συλλογή και επεξεργασία των βασικών στοιχείων σας αποκλειστικά για τον προγραμματισμό του ραντεβού σας.<br><br>Γεια σας. Είμαι η ψηφιακή βοηθός του ιατρείου. Πώς μπορώ να σας εξυπηρετήσω;</div>
+            <div class="message bot-message">ℹ️ <b>Ενημέρωση GDPR</b>: Με τη συνέχιση της συνομιλίας, αποδέχεστε τη συλλογή και επεξεργασία των βασικών στοιχείων σας αποκλειστικά για τον προγραμματισμό του ραντεβού σας.<br><br>Γεια σας! Είμαι η ψηφιακή βοηθός του Δοκιμαστικού Ιατρείου (Δρ. TEST). Πώς μπορώ να σας εξυπηρετήσω;</div>
         </div>
         <div class="chat-input">
             <input type="text" id="userInput" placeholder="Γράψτε το μήνυμά σας..." onkeypress="handleKeyPress(event)">
@@ -173,7 +253,7 @@ HTML_CONTENT = """
         async function resetChat() {
             await fetch('/reset', { method: 'POST' });
             document.getElementById('messages').innerHTML = `
-                <div class="message bot-message">ℹ️ <b>Ενημέρωση GDPR</b>: Με τη συνέχιση της συνομιλίας, αποδέχεστε τη συλλογή και επεξεργασία των βασικών στοιχείων σας αποκλειστικά για τον προγραμματισμό του ραντεβού σας.<br><br>Γεια σας. Είμαι η ψηφιακή βοηθός του ιατρείου. Πώς μπορώ να σας εξυπηρετήσω;</div>
+                <div class="message bot-message">ℹ️ <b>Ενημέρωση GDPR</b>: Με τη συνέχιση της συνομιλίας, αποδέχεστε τη συλλογή και επεξεργασία των βασικών στοιχείων σας αποκλειστικά για τον προγραμματισμό του ραντεβού σας.<br><br>Γεια σας! Είμαι η ψηφιακή βοηθός του Δοκιμαστικού Ιατρείου (Δρ. TEST). Πώς μπορώ να σας εξυπηρετήσω;</div>
             `;
         }
         function appendMessage(text, className) {
@@ -195,18 +275,15 @@ def get_webpage():
     return HTML_CONTENT
 
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
     global chat_history
     try:
+        chat_history[0] = {"role": "system", "content": get_system_prompt()}
         chat_history.append({"role": "user", "content": request.message})
         
-        # Περιορισμός ιστορικού στα τελευταία 10 μηνύματα
-        recent_messages = chat_history[-10:] if len(chat_history) > 10 else chat_history
-        messages_payload = [{"role": "system", "content": get_system_prompt()}] + recent_messages
-
         completion = client.chat.completions.create(
             model=ACTIVE_MODEL,
-            messages=messages_payload,
+            messages=chat_history,
             tools=tools,
             tool_choice="auto",
             temperature=0.0,
@@ -214,8 +291,6 @@ async def chat_endpoint(request: ChatRequest):
         response_message = completion.choices[0].message
 
         if response_message.tool_calls:
-            messages_payload.append(response_message)
-            
             for tool_call in response_message.tool_calls:
                 func_name = tool_call.function.name
                 args = json.loads(tool_call.function.arguments)
@@ -223,24 +298,64 @@ async def chat_endpoint(request: ChatRequest):
 
                 if func_name == "find_calendar_event":
                     tool_result = find_calendar_event(args.get("booking_code_or_phone"))
+
                 elif func_name == "create_calendar_event":
-                    tool_result = create_calendar_event(args.get("summary"), args.get("patient_phone"), args.get("start_iso"), args.get("end_iso"))
+                    tool_result = create_calendar_event(
+                        args.get("summary"),
+                        args.get("patient_phone"),
+                        args.get("start_iso"),
+                        args.get("end_iso")
+                    )
+                    background_tasks.add_task(
+                        send_doctor_notification,
+                        doctor_email=DOCTOR_NOTIFICATION_EMAIL,
+                        event_type="CREATE",
+                        details={
+                            "summary": args.get("summary"),
+                            "patient_phone": args.get("patient_phone"),
+                            "start_iso": args.get("start_iso"),
+                            "end_iso": args.get("end_iso"),
+                            "tool_result": tool_result
+                        }
+                    )
+
                 elif func_name == "cancel_calendar_event":
                     tool_result = cancel_calendar_event(args.get("booking_code_or_phone"))
+                    background_tasks.add_task(
+                        send_doctor_notification,
+                        doctor_email=DOCTOR_NOTIFICATION_EMAIL,
+                        event_type="CANCEL",
+                        details={
+                            "booking_code_or_phone": args.get("booking_code_or_phone"),
+                            "tool_result": tool_result
+                        }
+                    )
+
                 elif func_name == "reschedule_calendar_event":
-                    tool_result = reschedule_calendar_event(args.get("booking_code_or_phone"), args.get("new_start_iso"), args.get("new_end_iso"))
+                    tool_result = reschedule_calendar_event(
+                        args.get("booking_code_or_phone"),
+                        args.get("new_start_iso"),
+                        args.get("new_end_iso")
+                    )
+                    background_tasks.add_task(
+                        send_doctor_notification,
+                        doctor_email=DOCTOR_NOTIFICATION_EMAIL,
+                        event_type="RESCHEDULE",
+                        details={
+                            "booking_code_or_phone": args.get("booking_code_or_phone"),
+                            "new_start_iso": args.get("new_start_iso"),
+                            "new_end_iso": args.get("new_end_iso"),
+                            "tool_result": tool_result
+                        }
+                    )
 
-                messages_payload.append({"role": "tool", "tool_call_id": tool_call.id, "content": tool_result})
+                chat_history.append(response_message)
+                chat_history.append({"role": "tool", "tool_call_id": tool_call.id, "content": tool_result})
 
-            second_completion = client.chat.completions.create(
-                model=ACTIVE_MODEL, 
-                messages=messages_payload, 
-                temperature=0.0
-            )
-            bot_response = second_completion.choices[0].message.content
-            
-            chat_history.append({"role": "assistant", "content": bot_response})
-            return {"response": bot_response}
+                second_completion = client.chat.completions.create(model=ACTIVE_MODEL, messages=chat_history, temperature=0.0)
+                bot_response = second_completion.choices[0].message.content
+                chat_history.append({"role": "assistant", "content": bot_response})
+                return {"response": bot_response}
 
         bot_response = response_message.content
         chat_history.append({"role": "assistant", "content": bot_response})
@@ -252,5 +367,5 @@ async def chat_endpoint(request: ChatRequest):
 @app.post("/reset")
 async def reset_endpoint():
     global chat_history
-    chat_history = []
+    chat_history = [{"role": "system", "content": get_system_prompt()}]
     return {"status": "ok"}
