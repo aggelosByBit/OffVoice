@@ -89,30 +89,29 @@ def get_system_prompt():
         dates_reference += f"- {days_gr[day.weekday()]} {day.strftime('%d/%m/%Y')} -> ISO: {day.strftime('%Y-%m-%d')}\n"
 
     return f"""
-Είσαι η ψηφιακή βοηθός (AI Receptionist) του Δοκιμαστικού Ιατρείου (Δρ. TEST - Γυναικολόγος / Μαιευτήρας).
+Είσαι η ψηφιακή βοηθός (AI Receptionist) του Ιατρείου.
+Απαντάς ΠΑΝΤΑ με απόλυτη ευγένεια, επαγγελματισμό και σοβαρότητα (πληθυντικός ευγενείας, σύντομες και κοφτές απαντήσεις).
 
 {dates_reference}
 
 === ΚΑΝΟΝΕΣ ΕΠΙΚΟΙΝΩΝΙΑΣ (ΑΥΣΤΗΡΟ) ===
-1. ΣΤΥΛ: Απαντάς ΠΑΝΤΑ σύντομα, επαγγελματικά και ευγενικά (1-2 προτάσεις το πολύ).
+1. ΣΤΥΛ: Επαγγελματικό, λιτό, ευγενικό (1-2 προτάσεις το πολύ).
 2. ΑΠΑΓΟΡΕΥΣΗ ΠΕΡΙΤΤΩΝ ΠΛΗΡΟΦΟΡΙΩΝ:
-   - ΜΗΝ εξηγείς ΠΟΤΕ στον χρήστη τεχνικούς κανόνες (π.χ. για 30 λεπτά, για συγκρούσεις ραντεβού, ή για το τι είναι διαθέσιμο).
-   - ΜΗΝ αναφέρεις ΠΟΤΕ ποιες ώρες είναι κατειλημμένες.
-   - Για αλλαγή ραντεβού, μόλις βρεθεί ο κωδικός, ρώτα ΑΠΛΑ: "Ποια νέα ημερομηνία και ώρα επιθυμείτε;"
-3. GDPR: Απαγορεύεται η αποκάλυψη στοιχείων άλλων ασθενών.
-4. OUT-OF-SCOPE: Αρνήσου ευγενικά ερωτήσεις εκτός ιατρείου.
-5. ΛΕΙΤΟΥΡΓΙΑ 🏥: Δευτέρα έως Παρασκευή 09:00 - 17:00 (30 λεπτά ανά ραντεβού).
+   - ΜΗΝ εξηγείς τεχνικούς κανόνες στον ασθενή.
+   - ΜΗΝ αναφέρεις ποιες ώρες είναι κατειλημμένες.
+3. GDPR: Απόλυτη προστασία προσωπικών δεδομένων.
+4. ΛΕΙΤΟΥΡΓΙΑ: Δευτέρα έως Παρασκευή 09:00 - 17:00 (30 λεπτά ανά ραντεβού).
 
 === ΛΕΙΤΟΥΡΓΙΕΣ ===
 1. ΝΕΟ ΡΑΝΤΕΒΟΥ: Συλλέγεις 1) Ονοματεπώνυμο, 2) Τηλέφωνο, 3) Ημερομηνία & Ώρα, 4) Αιτία και καλείς `create_calendar_event`.
-2. ΑΛΛΑΓΗ / ΑΚΥΡΩΣΗ: Ζητάς τον κωδικό, καλείς `find_calendar_event`, και μετά ρωτάς τη νέα ώρα ή επιβεβαίωση ακύρωσης.
+2. ΑΛΛΑΓΗ / ΑΚΥΡΩΣΗ: Ζητάς τον κωδικό, καλείς `find_calendar_event`.
 
 === ΔΙΑΘΕΣΙΜΟΤΗΤΑ ===
 {check_calendar_events()}
 """
 
 app = FastAPI()
-chat_history = [{"role": "system", "content": get_system_prompt()}]
+chat_history = []
 
 class ChatRequest(BaseModel):
     message: str
@@ -123,7 +122,7 @@ HTML_CONTENT = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Δρ. TEST - AI Assistant</title>
+    <title>OffVoice AI - Ψηφιακός Βοηθός Ιατρείου</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; padding: 10px; display: flex; justify-content: center; }
         .chat-container { width: 100%; max-width: 450px; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 80vh; }
@@ -141,11 +140,11 @@ HTML_CONTENT = """
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            <span>Δρ. TEST - AI Assistant (Test Mode)</span>
+            <span>OffVoice AI - Ψηφιακός Βοηθός Ιατρείου</span>
             <button class="reset-btn" onclick="resetChat()">Επαναφορά</button>
         </div>
         <div class="chat-messages" id="messages">
-            <div class="message bot-message">ℹ️ <b>Ενημέρωση GDPR</b>: Με τη συνέχιση της συνομιλίας, αποδέχεστε τη συλλογή και επεξεργασία των βασικών στοιχείων σας αποκλειστικά για τον προγραμματισμό του ραντεβού σας.<br><br>Γεια σας! Είμαι η ψηφιακή βοηθός του Δοκιμαστικού Ιατρείου (Δρ. TEST). Πώς μπορώ να σας εξυπηρετήσω;</div>
+            <div class="message bot-message">ℹ️ <b>Ενημέρωση GDPR</b>: Με τη συνέχιση της συνομιλίας, αποδέχεστε τη συλλογή και επεξεργασία των βασικών στοιχείων σας αποκλειστικά για τον προγραμματισμό του ραντεβού σας.<br><br>Γεια σας. Είμαι η ψηφιακή βοηθός του ιατρείου. Πώς μπορώ να σας εξυπηρετήσω;</div>
         </div>
         <div class="chat-input">
             <input type="text" id="userInput" placeholder="Γράψτε το μήνυμά σας..." onkeypress="handleKeyPress(event)">
@@ -174,7 +173,7 @@ HTML_CONTENT = """
         async function resetChat() {
             await fetch('/reset', { method: 'POST' });
             document.getElementById('messages').innerHTML = `
-                <div class="message bot-message">ℹ️ <b>Ενημέρωση GDPR</b>: Με τη συνέχιση της συνομιλίας, αποδέχεστε τη συλλογή και επεξεργασία των βασικών στοιχείων σας αποκλειστικά για τον προγραμματισμό του ραντεβού σας.<br><br>Γεια σας! Είμαι η ψηφιακή βοηθός του Δοκιμαστικού Ιατρείου (Δρ. TEST). Πώς μπορώ να σας εξυπηρετήσω;</div>
+                <div class="message bot-message">ℹ️ <b>Ενημέρωση GDPR</b>: Με τη συνέχιση της συνομιλίας, αποδέχεστε τη συλλογή και επεξεργασία των βασικών στοιχείων σας αποκλειστικά για τον προγραμματισμό του ραντεβού σας.<br><br>Γεια σας. Είμαι η ψηφιακή βοηθός του ιατρείου. Πώς μπορώ να σας εξυπηρετήσω;</div>
             `;
         }
         function appendMessage(text, className) {
@@ -199,12 +198,15 @@ def get_webpage():
 async def chat_endpoint(request: ChatRequest):
     global chat_history
     try:
-        chat_history[0] = {"role": "system", "content": get_system_prompt()}
         chat_history.append({"role": "user", "content": request.message})
         
+        # Περιορισμός ιστορικού στα τελευταία 10 μηνύματα
+        recent_messages = chat_history[-10:] if len(chat_history) > 10 else chat_history
+        messages_payload = [{"role": "system", "content": get_system_prompt()}] + recent_messages
+
         completion = client.chat.completions.create(
             model=ACTIVE_MODEL,
-            messages=chat_history,
+            messages=messages_payload,
             tools=tools,
             tool_choice="auto",
             temperature=0.0,
@@ -212,6 +214,8 @@ async def chat_endpoint(request: ChatRequest):
         response_message = completion.choices[0].message
 
         if response_message.tool_calls:
+            messages_payload.append(response_message)
+            
             for tool_call in response_message.tool_calls:
                 func_name = tool_call.function.name
                 args = json.loads(tool_call.function.arguments)
@@ -226,13 +230,17 @@ async def chat_endpoint(request: ChatRequest):
                 elif func_name == "reschedule_calendar_event":
                     tool_result = reschedule_calendar_event(args.get("booking_code_or_phone"), args.get("new_start_iso"), args.get("new_end_iso"))
 
-                chat_history.append(response_message)
-                chat_history.append({"role": "tool", "tool_call_id": tool_call.id, "content": tool_result})
+                messages_payload.append({"role": "tool", "tool_call_id": tool_call.id, "content": tool_result})
 
-                second_completion = client.chat.completions.create(model=ACTIVE_MODEL, messages=chat_history, temperature=0.0)
-                bot_response = second_completion.choices[0].message.content
-                chat_history.append({"role": "assistant", "content": bot_response})
-                return {"response": bot_response}
+            second_completion = client.chat.completions.create(
+                model=ACTIVE_MODEL, 
+                messages=messages_payload, 
+                temperature=0.0
+            )
+            bot_response = second_completion.choices[0].message.content
+            
+            chat_history.append({"role": "assistant", "content": bot_response})
+            return {"response": bot_response}
 
         bot_response = response_message.content
         chat_history.append({"role": "assistant", "content": bot_response})
@@ -244,5 +252,5 @@ async def chat_endpoint(request: ChatRequest):
 @app.post("/reset")
 async def reset_endpoint():
     global chat_history
-    chat_history = [{"role": "system", "content": get_system_prompt()}]
+    chat_history = []
     return {"status": "ok"}
