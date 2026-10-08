@@ -7,7 +7,6 @@ import zoneinfo
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
-# Ανάκτηση credentials από Environment Variables του Render
 CALENDAR_ID = os.getenv("CALENDAR_ID")
 creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
