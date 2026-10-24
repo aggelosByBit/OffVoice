@@ -129,7 +129,7 @@ def create_calendar_event(summary, patient_phone, start_iso, end_iso):
         booking_code = generate_booking_code()
         event = {
             'summary': summary,
-            'description': f"Κωδικός Κράτησης: {booking_code}\nΤηλέφωνο ασθενούς: {patient_phone}",
+            'description': f"🤖 [OffVoice AI] Κωδικός Κράτησης: {booking_code}\nΤηλέφωνο ασθενούς: {patient_phone}",
             'start': {'dateTime': dt_start.isoformat(), 'timeZone': 'Europe/Athens'},
             'end': {'dateTime': dt_end.isoformat(), 'timeZone': 'Europe/Athens'},
         }
