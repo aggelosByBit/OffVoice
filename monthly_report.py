@@ -64,14 +64,13 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
     if not doctor_email:
         raise ValueError("Δεν βρέθηκε email γιατρού στη μεταβλητή DOCTOR_NOTIFICATION_EMAIL.")
 
-    # Ρυθμίσεις ωραρίου και ημερών ιατρείου από τα env (με defaults)
+    # Ρυθμίσεις ωραρίου και ημερών ιατρείου από τα env
     open_hour = int(os.getenv("CLINIC_OPEN_HOUR", "8"))
     close_hour = int(os.getenv("CLINIC_CLOSE_HOUR", "20"))
     
-    work_days_env = os.getenv("CLINIC_WORK_DAYS", "0,1,2,3,4") # Default: Δευτέρα-Παρασκευή
+    work_days_env = os.getenv("CLINIC_WORK_DAYS", "0,1,2,3,4")
     work_days = [int(d.strip()) for d in work_days_env.split(",") if d.strip().isdigit()]
 
-    # Μετατροπή ημερών σε Ελληνικά ονόματα για ωραία εμφάνιση
     day_map = {0: "Δευτέρα", 1: "Τρίτη", 2: "Τετάρτη", 3: "Πέμπτη", 4: "Παρασκευή", 5: "Σάββατο", 6: "Κυριακή"}
     work_days_str = ", ".join([day_map[d] for d in work_days if d in day_map])
 
@@ -116,22 +115,22 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
         except Exception:
             completed_appointments += 1
 
-        start_str = event["start"].get("dateTime", event["start"].get("date"))
-        try:
-            start_dt = datetime.datetime.fromisoformat(start_str)
-            if start_dt.tzinfo is None:
-                start_dt = start_dt.replace(tzinfo=tz)
+        # --- ΕΔΩ ΕΙΝΑΙ Η ΑΛΛΑΓΗ ---
+        # Διαβάζουμε την ημερομηνία & ώρα ΠΟΥ ΕΓΙΝΕ η κράτηση (created timestamp)
+        created_str = event.get("created")
+        if created_str:
+            try:
+                created_dt = datetime.datetime.fromisoformat(created_str.replace("Z", "+00:00")).astimezone(tz)
+                
+                # Έλεγχος αν η ΚΡΑΤΗΣΗ έγινε σε μέρα ή ώρα που το ιατρείο ήταν κλειστό
+                is_non_work_day = created_dt.weekday() not in work_days
+                is_outside_hours = created_dt.hour < open_hour or created_dt.hour >= close_hour
 
-            # Έλεγχος αν είναι εκτός εργάσιμων ημερών ή εκτός ωραρίου λειτουργίας
-            is_non_work_day = start_dt.weekday() not in work_days
-            is_outside_hours = start_dt.hour < open_hour or start_dt.hour >= close_hour
+                if is_non_work_day or is_outside_hours:
+                    after_hours_count += 1
+            except Exception:
+                pass
 
-            if is_non_work_day or is_outside_hours:
-                after_hours_count += 1
-        except Exception:
-            pass
-
-    # Υπολογισμός εύρους εξοικονόμησης (2 έως 3 λεπτά ανά ραντεβού)
     min_minutes = total_appointments * 2
     max_minutes = total_appointments * 3
 
@@ -160,13 +159,13 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
         <h3 style="color: #2b6cb0; font-size: 16px;">⏳ Όφελος Ιατρείου</h3>
         <ul style="font-size: 15px; line-height: 1.8;">
             <li><strong>Εξοικονομημένος Χρόνος:</strong> <strong>{time_saved_str}</strong> καθαρής εργασίας γραμματείας <em style="font-size: 12px; color: #777;">(βάσει 2-3 λεπτών ανά κλήση/ραντεβού)</em></li>
-            <li><strong>Κρατήσεις Εκτός Ωραρίου:</strong> <strong>{after_hours_count} ραντεβού</strong> <em style="font-size: 12px; color: #777;">(εκτός ωραρίου {open_hour}:00 - {close_hour}:00 ή εκτός ημερών: {work_days_str})</em></li>
+            <li><strong>Κρατήσεις Εκτός Ωραρίου:</strong> <strong>{after_hours_count} ραντεβού</strong> <em style="font-size: 12px; color: #777;">(κλήσεις που πραγματοποιήθηκαν εκτός ωραρίου {open_hour}:00 - {close_hour}:00 ή εκτός ημερών: {work_days_str})</em></li>
         </ul>
 
         <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
 
         <p style="font-size: 13px; color: #718096; text-align: center; font-style: italic;">
-            💡 Το OffVoice AI διατήρησε το ημερολόγιό σας ανοιχτό 24/7 (Ωράριο: {open_hour}:00 - {close_hour}:00 | Ημέρες: {work_days_str}) χωρίς καμία χαμένη κλήση.
+            💡 Το OffVoice AI διατήρησε τη γραμμή σας ανοιχτή 24/7 (Ωράριο ιατρείου: {open_hour}:00 - {close_hour}:00 | Ημέρες: {work_days_str}) καταγράφοντας ραντεβού ακόμα και όταν το ιατρείο ήταν κλειστό.
         </p>
     </div>
     """
