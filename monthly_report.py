@@ -6,7 +6,6 @@ import resend
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
-# Εντοπισμός του φακέλου του script για σίγουρη ανάγνωση των αρχείων .env / credentials.json
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 
@@ -35,22 +34,14 @@ load_environment()
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 def get_calendar_service():
-    """
-    Σύνδεση στο Google Calendar API.
-    Ελέγχει πρώτα για τοπικό credentials.json, αλλιώς διαβάζει τη μεταβλητή GOOGLE_CREDENTIALS.
-    """
-    # 1. Πρώτη επιλογή: Ύπαρξη τοπικού credentials.json
     json_file_path = os.path.join(BASE_DIR, "credentials.json")
     if os.path.exists(json_file_path):
         creds = Credentials.from_service_account_file(json_file_path, scopes=SCOPES)
         return build("calendar", "v3", credentials=creds)
 
-    # 2. Δεύτερη επιλογή: Ανάγνωση από GOOGLE_CREDENTIALS
     creds_json_str = os.getenv("GOOGLE_CREDENTIALS")
     if not creds_json_str:
-        raise ValueError(
-            "Δεν βρέθηκε ούτε το αρχείο credentials.json ούτε η μεταβλητή GOOGLE_CREDENTIALS."
-        )
+        raise ValueError("Δεν βρέθηκε ούτε το αρχείο credentials.json ούτε η μεταβλητή GOOGLE_CREDENTIALS.")
     
     creds_json_str = creds_json_str.strip("'\"")
     creds_info = json.loads(creds_json_str)
@@ -65,7 +56,6 @@ def get_calendar_service():
     return build("calendar", "v3", credentials=creds)
 
 def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str = None):
-    """Συλλέγει στατιστικά ραντεβού των τελευταίων 30 ημερών και στέλνει το ROI Report."""
     if not doctor_email:
         doctor_email = os.getenv("DOCTOR_NOTIFICATION_EMAIL")
     if not doctor_name:
@@ -78,8 +68,12 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
     open_hour = int(os.getenv("CLINIC_OPEN_HOUR", "8"))
     close_hour = int(os.getenv("CLINIC_CLOSE_HOUR", "20"))
     
-    work_days_env = os.getenv("CLINIC_WORK_DAYS", "0,1,2,3,4") # 0=Δευτέρα έως 4=Παρασκευή
+    work_days_env = os.getenv("CLINIC_WORK_DAYS", "0,1,2,3,4") # Default: Δευτέρα-Παρασκευή
     work_days = [int(d.strip()) for d in work_days_env.split(",") if d.strip().isdigit()]
+
+    # Μετατροπή ημερών σε Ελληνικά ονόματα για ωραία εμφάνιση
+    day_map = {0: "Δευτέρα", 1: "Τρίτη", 2: "Τετάρτη", 3: "Πέμπτη", 4: "Παρασκευή", 5: "Σάββατο", 6: "Κυριακή"}
+    work_days_str = ", ".join([day_map[d] for d in work_days if d in day_map])
 
     service = get_calendar_service()
     tz = zoneinfo.ZoneInfo("Europe/Athens")
@@ -166,13 +160,13 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
         <h3 style="color: #2b6cb0; font-size: 16px;">⏳ Όφελος Ιατρείου</h3>
         <ul style="font-size: 15px; line-height: 1.8;">
             <li><strong>Εξοικονομημένος Χρόνος:</strong> <strong>{time_saved_str}</strong> καθαρής εργασίας γραμματείας <em style="font-size: 12px; color: #777;">(βάσει 2-3 λεπτών ανά κλήση/ραντεβού)</em></li>
-            <li><strong>Κρατήσεις Εκτός Ωραρίου:</strong> <strong>{after_hours_count} ραντεβού</strong> <em style="font-size: 12px; color: #777;">(εκτός ωραρίου {open_hour}:00 - {close_hour}:00 ή μη εργάσιμες ημέρες)</em></li>
+            <li><strong>Κρατήσεις Εκτός Ωραρίου:</strong> <strong>{after_hours_count} ραντεβού</strong> <em style="font-size: 12px; color: #777;">(εκτός ωραρίου {open_hour}:00 - {close_hour}:00 ή εκτός ημερών: {work_days_str})</em></li>
         </ul>
 
         <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
 
         <p style="font-size: 13px; color: #718096; text-align: center; font-style: italic;">
-            💡 Το OffVoice AI διατήρησε το ημερολόγιό σας ανοιχτό 24/7 (Ωράριο λειτουργίας: {open_hour}:00 - {close_hour}:00) χωρίς καμία χαμένη κλήση.
+            💡 Το OffVoice AI διατήρησε το ημερολόγιό σας ανοιχτό 24/7 (Ωράριο: {open_hour}:00 - {close_hour}:00 | Ημέρες: {work_days_str}) χωρίς καμία χαμένη κλήση.
         </p>
     </div>
     """
