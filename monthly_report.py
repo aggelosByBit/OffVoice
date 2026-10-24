@@ -103,6 +103,12 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
             cancelled_appointments += 1
             continue
 
+        # --- ΦΙΛΤΡΟ ΑΣΦΑΛΕΙΑΣ: ΜΟΝΟ ΡΑΝΤΕΒΟΥ ΤΟΥ OFFVOICE AI ---
+        description = event.get("description", "")
+        if "OffVoice AI" not in description:
+            continue  # Αγνοεί οτιδήποτε δεν δημιουργήθηκε από τον ψηφιακό βοηθό!
+        # --------------------------------------------------------
+
         total_appointments += 1
 
         end_str = event["end"].get("dateTime", event["end"].get("date"))
@@ -115,7 +121,6 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
         except Exception:
             completed_appointments += 1
 
-        # --- ΕΔΩ ΕΙΝΑΙ Η ΑΛΛΑΓΗ ---
         # Διαβάζουμε την ημερομηνία & ώρα ΠΟΥ ΕΓΙΝΕ η κράτηση (created timestamp)
         created_str = event.get("created")
         if created_str:
