@@ -74,6 +74,13 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
     if not doctor_email:
         raise ValueError("Δεν βρέθηκε email γιατρού στη μεταβλητή DOCTOR_NOTIFICATION_EMAIL.")
 
+    # Ρυθμίσεις ωραρίου και ημερών ιατρείου από τα env (με defaults)
+    open_hour = int(os.getenv("CLINIC_OPEN_HOUR", "8"))
+    close_hour = int(os.getenv("CLINIC_CLOSE_HOUR", "20"))
+    
+    work_days_env = os.getenv("CLINIC_WORK_DAYS", "0,1,2,3,4") # 0=Δευτέρα έως 4=Παρασκευή
+    work_days = [int(d.strip()) for d in work_days_env.split(",") if d.strip().isdigit()]
+
     service = get_calendar_service()
     tz = zoneinfo.ZoneInfo("Europe/Athens")
     now = datetime.datetime.now(tz)
@@ -121,13 +128,25 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
             if start_dt.tzinfo is None:
                 start_dt = start_dt.replace(tzinfo=tz)
 
-            if start_dt.weekday() >= 5 or start_dt.hour < 8 or start_dt.hour >= 20:
+            # Έλεγχος αν είναι εκτός εργάσιμων ημερών ή εκτός ωραρίου λειτουργίας
+            is_non_work_day = start_dt.weekday() not in work_days
+            is_outside_hours = start_dt.hour < open_hour or start_dt.hour >= close_hour
+
+            if is_non_work_day or is_outside_hours:
                 after_hours_count += 1
         except Exception:
             pass
 
-    total_minutes_saved = total_appointments * 4
-    hours_saved = round(total_minutes_saved / 60, 1)
+    # Υπολογισμός εύρους εξοικονόμησης (2 έως 3 λεπτά ανά ραντεβού)
+    min_minutes = total_appointments * 2
+    max_minutes = total_appointments * 3
+
+    if max_minutes >= 60:
+        min_hours = round(min_minutes / 60, 1)
+        max_hours = round(max_minutes / 60, 1)
+        time_saved_str = f"{min_hours} - {max_hours} ώρες"
+    else:
+        time_saved_str = f"{min_minutes} - {max_minutes} λεπτά"
 
     html_content = f"""
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 25px; border: 1px solid #e0e0e0; border-radius: 12px; background-color: #ffffff;">
@@ -146,14 +165,14 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
 
         <h3 style="color: #2b6cb0; font-size: 16px;">⏳ Όφελος Ιατρείου</h3>
         <ul style="font-size: 15px; line-height: 1.8;">
-            <li><strong>Εξοικονομημένος Χρόνος:</strong> <strong>{hours_saved} ώρες</strong> καθαρής εργασίας γραμματείας <em style="font-size: 12px; color: #777;">(βάσει 4 λεπτών/κλήση)</em></li>
-            <li><strong>Κρατήσεις Εκτός Ωραρίου:</strong> <strong>{after_hours_count} ραντεβού</strong> <em style="font-size: 12px; color: #777;">(τα Σαββατοκύριακα ή μετά τις 20:00)</em></li>
+            <li><strong>Εξοικονομημένος Χρόνος:</strong> <strong>{time_saved_str}</strong> καθαρής εργασίας γραμματείας <em style="font-size: 12px; color: #777;">(βάσει 2-3 λεπτών ανά κλήση/ραντεβού)</em></li>
+            <li><strong>Κρατήσεις Εκτός Ωραρίου:</strong> <strong>{after_hours_count} ραντεβού</strong> <em style="font-size: 12px; color: #777;">(εκτός ωραρίου {open_hour}:00 - {close_hour}:00 ή μη εργάσιμες ημέρες)</em></li>
         </ul>
 
         <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
 
         <p style="font-size: 13px; color: #718096; text-align: center; font-style: italic;">
-            💡 Το OffVoice AI διατήρησε το ημερολόγιό σας πλήρως συγχρονισμένο 24/7 χωρίς καμία χαμένη κλήση.
+            💡 Το OffVoice AI διατήρησε το ημερολόγιό σας ανοιχτό 24/7 (Ωράριο λειτουργίας: {open_hour}:00 - {close_hour}:00) χωρίς καμία χαμένη κλήση.
         </p>
     </div>
     """
