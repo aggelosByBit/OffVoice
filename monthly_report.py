@@ -81,8 +81,9 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
     time_max = now.isoformat()
     time_min = (now - datetime.timedelta(days=30)).isoformat()
 
+    # Εδώ διορθώθηκε το calendarId στο σωστό ημερολόγιο
     events_result = service.events().list(
-        calendarId="primary",
+        calendarId="Family00850234966355980301@group.calendar.google.com",
         timeMin=time_min,
         timeMax=time_max,
         singleEvents=True,
@@ -106,7 +107,7 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
         # --- ΦΙΛΤΡΟ ΑΣΦΑΛΕΙΑΣ: ΜΟΝΟ ΡΑΝΤΕΒΟΥ ΤΟΥ OFFVOICE AI ---
         description = event.get("description", "")
         if "OffVoice AI" not in description:
-            continue  # Αγνοεί οτιδήποτε δεν δημιουργήθηκε από τον ψηφιακό βοηθό!
+            continue  # Αγνοεί oτιδήποτε δεν δημιουργήθηκε από τον ψηφιακό βοηθό!
         # --------------------------------------------------------
 
         total_appointments += 1
@@ -125,72 +126,4 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
         created_str = event.get("created")
         if created_str:
             try:
-                created_dt = datetime.datetime.fromisoformat(created_str.replace("Z", "+00:00")).astimezone(tz)
-                
-                # Έλεγχος αν η ΚΡΑΤΗΣΗ έγινε σε μέρα ή ώρα που το ιατρείο ήταν κλειστό
-                is_non_work_day = created_dt.weekday() not in work_days
-                is_outside_hours = created_dt.hour < open_hour or created_dt.hour >= close_hour
-
-                if is_non_work_day or is_outside_hours:
-                    after_hours_count += 1
-            except Exception:
-                pass
-
-    min_minutes = total_appointments * 2
-    max_minutes = total_appointments * 3
-
-    if max_minutes >= 60:
-        min_hours = round(min_minutes / 60, 1)
-        max_hours = round(max_minutes / 60, 1)
-        time_saved_str = f"{min_hours} - {max_hours} ώρες"
-    else:
-        time_saved_str = f"{min_minutes} - {max_minutes} λεπτά"
-
-    html_content = f"""
-    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 25px; border: 1px solid #e0e0e0; border-radius: 12px; background-color: #ffffff;">
-        <h2 style="color: #1a365d; text-align: center; margin-bottom: 20px;">📊 Μηνιαία Αναφορά Αποδοτικότητας OffVoice AI</h2>
-        <p style="font-size: 16px;">Αγαπητέ/ή <strong>{doctor_name}</strong>,</p>
-        <p style="font-size: 14px; color: #555;">Ακολουθεί η σύνοψη της δραστηριότητας του ψηφιακού σας βοηθού <strong>OffVoice AI</strong> για τις τελευταίες 30 ημέρες:</p>
-
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-
-        <h3 style="color: #2b6cb0; font-size: 16px;">📈 Στατιστικά Ραντεβού</h3>
-        <ul style="font-size: 15px; line-height: 1.8;">
-            <li><strong>Συνολικά Αιτήματα:</strong> {total_appointments} ραντεβού</li>
-            <li><strong>Ολοκληρωμένες Επισκέψεις:</strong> <span style="color: #27ae60;">{completed_appointments}</span></li>
-            <li><strong>Ακυρώσεις / Αλλαγές:</strong> <span style="color: #c0392b;">{cancelled_appointments}</span></li>
-        </ul>
-
-        <h3 style="color: #2b6cb0; font-size: 16px;">⏳ Όφελος Ιατρείου</h3>
-        <ul style="font-size: 15px; line-height: 1.8;">
-            <li><strong>Εξοικονομημένος Χρόνος:</strong> <strong>{time_saved_str}</strong> καθαρής εργασίας γραμματείας <em style="font-size: 12px; color: #777;">(βάσει 2-3 λεπτών ανά κλήση/ραντεβού)</em></li>
-            <li><strong>Κρατήσεις Εκτός Ωραρίου:</strong> <strong>{after_hours_count} ραντεβού</strong> <em style="font-size: 12px; color: #777;">(κλήσεις που πραγματοποιήθηκαν εκτός ωραρίου {open_hour}:00 - {close_hour}:00 ή εκτός ημερών: {work_days_str})</em></li>
-        </ul>
-
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-
-        <p style="font-size: 13px; color: #718096; text-align: center; font-style: italic;">
-            💡 Το OffVoice AI διατήρησε τη γραμμή σας ανοιχτή 24/7 (Ωράριο ιατρείου: {open_hour}:00 - {close_hour}:00 | Ημέρες: {work_days_str}) καταγράφοντας ραντεβού ακόμα και όταν το ιατρείο ήταν κλειστό.
-        </p>
-    </div>
-    """
-
-    resend_api_key = os.getenv("RESEND_API_KEY")
-    if not resend_api_key:
-        raise ValueError("Δεν βρέθηκε η μεταβλητή RESEND_API_KEY.")
-
-    resend.api_key = resend_api_key
-
-    params = {
-        "from": "OffVoice AI <onboarding@resend.dev>",
-        "to": [doctor_email],
-        "subject": f"📊 Μηνιαία Αναφορά Αποδοτικότητας OffVoice AI - {doctor_name}",
-        "html": html_content
-    }
-
-    response = resend.Emails.send(params)
-    print(f"✅ Η αναφορά στάλθηκε επιτυχώς στο {doctor_email}! Resend ID: {response.get('id')}")
-    return response
-
-if __name__ == "__main__":
-    generate_and_send_monthly_report()
+                created_dt = datetime.datetime.fromisoformat(created_str
