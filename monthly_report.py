@@ -99,16 +99,17 @@ def generate_and_send_monthly_report(doctor_email: str = None, doctor_name: str 
     after_hours_count = 0
 
     for event in items:
+        # --- ΦΙΛΤΡΟ ΑΣΦΑΛΕΙΑΣ: ΜΟΝΟ ΓΕΓΟΝΟΤΑ ΤΟΥ OFFVOICE AI ---
+        description = event.get("description", "")
+        summary = event.get("summary", "")
+        if "OffVoice AI" not in description and "OffVoice AI" not in summary:
+            continue  # Αγνοεί οτιδήποτε δεν ανήκει στο OffVoice AI!
+        # --------------------------------------------------------
+
         status = event.get("status")
         if status == "cancelled":
             cancelled_appointments += 1
             continue
-
-        # --- ΦΙΛΤΡΟ ΑΣΦΑΛΕΙΑΣ: ΜΟΝΟ ΡΑΝΤΕΒΟΥ ΤΟΥ OFFVOICE AI ---
-        description = event.get("description", "")
-        if "OffVoice AI" not in description:
-            continue
-        # --------------------------------------------------------
 
         total_appointments += 1
 
